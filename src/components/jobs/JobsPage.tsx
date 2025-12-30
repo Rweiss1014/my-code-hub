@@ -1,21 +1,55 @@
-import { useState } from "react";
-import { Search, MapPin, Briefcase, Clock, DollarSign, ExternalLink } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, MapPin, Briefcase, Clock, DollarSign, ExternalLink, RefreshCw, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { jobs, categories } from "@/data/mockData";
+import { categories } from "@/data/mockData";
+import { fetchJobs, scrapeJobs } from "@/lib/api/jobs";
+import type { Job } from "@/types";
+import { useToast } from "@/hooks/use-toast";
 
 const experienceLevels = ["Entry Level", "Mid Level", "Senior", "Lead", "Director"];
 const employmentTypes = ["Full-time", "Part-time", "Contract", "Freelance"];
 const workLocations = ["Remote", "Hybrid", "On-site"];
 
 const JobsPage = () => {
+  const { toast } = useToast();
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isScraping, setIsScraping] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedExperience, setSelectedExperience] = useState<string[]>([]);
   const [selectedEmployment, setSelectedEmployment] = useState<string[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadJobs();
+  }, []);
+
+  const loadJobs = async () => {
+    setIsLoading(true);
+    const data = await fetchJobs();
+    setJobs(data);
+    setIsLoading(false);
+  };
+
+  const handleScrape = async () => {
+    setIsScraping(true);
+    toast({ title: "Scraping jobs...", description: "This may take a minute." });
+    
+    const result = await scrapeJobs();
+    
+    if (result.success) {
+      toast({ title: "Success!", description: result.message });
+      await loadJobs();
+    } else {
+      toast({ title: "Error", description: result.message, variant: "destructive" });
+    }
+    
+    setIsScraping(false);
+  };
 
   const toggleFilter = (value: string, selected: string[], setSelected: (val: string[]) => void) => {
     if (selected.includes(value)) {
@@ -39,10 +73,22 @@ const JobsPage = () => {
       {/* Header */}
       <div className="border-b border-border bg-background py-8">
         <div className="container">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">L&D Job Listings</h1>
-          <p className="text-muted-foreground text-lg">
-            Discover opportunities in instructional design, e-learning development, and corporate training
-          </p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold mb-2">L&D Job Listings</h1>
+              <p className="text-muted-foreground text-lg">
+                Discover opportunities in instructional design, e-learning development, and corporate training
+              </p>
+            </div>
+            <Button onClick={handleScrape} disabled={isScraping} className="gap-2">
+              {isScraping ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {isScraping ? "Scraping..." : "Scrape New Jobs"}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -145,11 +191,21 @@ const JobsPage = () => {
 
           {/* Job Listings */}
           <main className="flex-1">
-            <p className="text-sm text-muted-foreground mb-4">
-              {filteredJobs.length} jobs found
-            </p>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : filteredJobs.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground mb-4">No jobs found. Click "Scrape New Jobs" to fetch L&D jobs from Indeed and LinkedIn.</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {filteredJobs.length} jobs found
+                </p>
 
-            <div className="space-y-4">
+                <div className="space-y-4">
               {filteredJobs.map((job) => (
                 <article
                   key={job.id}
@@ -205,7 +261,9 @@ const JobsPage = () => {
                   </div>
                 </article>
               ))}
-            </div>
+                </div>
+              </>
+            )}
           </main>
         </div>
       </div>
