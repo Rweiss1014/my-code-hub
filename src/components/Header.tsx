@@ -1,9 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
-import { Briefcase, Users, PlusCircle, LogIn, UserPlus } from "lucide-react";
+import { Briefcase, Users, PlusCircle, LogIn, UserPlus, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
 
 const Header = () => {
   const location = useLocation();
+  const { user, isLoading, signOut } = useAuth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -47,14 +49,32 @@ const Header = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" className="gap-2">
-            <LogIn className="h-4 w-4" />
-            Log In
-          </Button>
-          <Button className="gap-2">
-            <UserPlus className="h-4 w-4" />
-            Sign Up
-          </Button>
+          {isLoading ? null : user ? (
+            <>
+              <span className="text-sm text-muted-foreground hidden sm:inline">
+                {user.email}
+              </span>
+              <Button variant="ghost" className="gap-2" onClick={signOut}>
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Link to="/auth">
+                <Button variant="ghost" className="gap-2">
+                  <LogIn className="h-4 w-4" />
+                  Log In
+                </Button>
+              </Link>
+              <Link to="/auth">
+                <Button className="gap-2">
+                  <UserPlus className="h-4 w-4" />
+                  Sign Up
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>
