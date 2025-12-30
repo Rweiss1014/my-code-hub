@@ -253,7 +253,12 @@ const JobsPage = () => {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm text-muted-foreground">via {job.source}</span>
-                      <Button size="sm" className="gap-2">
+                      <Button 
+                        size="sm" 
+                        className="gap-2"
+                        onClick={() => job.applyUrl && window.open(job.applyUrl, '_blank')}
+                        disabled={!job.applyUrl}
+                      >
                         Apply
                         <ExternalLink className="h-3 w-3" />
                       </Button>
