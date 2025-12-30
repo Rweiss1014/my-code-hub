@@ -16,6 +16,44 @@ interface ScrapedJob {
   applyUrl?: string;
   externalId: string;
   source: string;
+  postedDate?: Date;
+}
+
+function isWithinLast30Days(dateStr: string | undefined): boolean {
+  if (!dateStr) return true; // If no date found, include the job
+  
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  
+  // Parse relative dates like "1 day ago", "2 weeks ago", etc.
+  const lowerDate = dateStr.toLowerCase();
+  
+  if (lowerDate.includes('just posted') || lowerDate.includes('today') || lowerDate.includes('just now')) {
+    return true;
+  }
+  
+  const daysMatch = lowerDate.match(/(\d+)\s*day/);
+  if (daysMatch) {
+    return parseInt(daysMatch[1]) <= 30;
+  }
+  
+  const weeksMatch = lowerDate.match(/(\d+)\s*week/);
+  if (weeksMatch) {
+    return parseInt(weeksMatch[1]) <= 4;
+  }
+  
+  const monthsMatch = lowerDate.match(/(\d+)\s*month/);
+  if (monthsMatch) {
+    return parseInt(monthsMatch[1]) < 1;
+  }
+  
+  // Try parsing as absolute date
+  const parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    return parsed >= thirtyDaysAgo;
+  }
+  
+  return true; // Default to including if we can't parse
 }
 
 Deno.serve(async (req) => {
@@ -73,9 +111,11 @@ Deno.serve(async (req) => {
 
         if (searchData.success && searchData.data) {
           for (const result of searchData.data) {
-            const job = parseJobFromResult(result);
-            if (job) {
+            const { job, postedDateStr } = parseJobFromResult(result);
+            if (job && isWithinLast30Days(postedDateStr)) {
               jobs.push(job);
+            } else if (job && !isWithinLast30Days(postedDateStr)) {
+              console.log(`Skipping job "${job.title}" - posted more than 30 days ago: ${postedDateStr}`);
             }
           }
         }
@@ -142,7 +182,7 @@ Deno.serve(async (req) => {
   }
 });
 
-function parseJobFromResult(result: any): ScrapedJob | null {
+function parseJobFromResult(result: any): { job: ScrapedJob | null; postedDateStr?: string } {
   try {
     const url = result.url || '';
     const title = result.title || '';
@@ -151,7 +191,7 @@ function parseJobFromResult(result: any): ScrapedJob | null {
 
     // Skip non-job pages
     if (!title || title.toLowerCase().includes('search') || title.toLowerCase().includes('login')) {
-      return null;
+      return { job: null };
     }
 
     // Determine source
@@ -208,23 +248,35 @@ function parseJobFromResult(result: any): ScrapedJob | null {
       salary = salaryMatch[0];
     }
 
+    // Extract posted date
+    let postedDateStr: string | undefined;
+    const postedMatch = markdown.match(/(?:posted|active)\s*(\d+\s*(?:day|week|month|hour)s?\s*ago)/i) ||
+                       markdown.match(/(\d+\s*(?:day|week|month|hour)s?\s*ago)/i) ||
+                       markdown.match(/(just\s*posted|today|just\s*now)/i);
+    if (postedMatch) {
+      postedDateStr = postedMatch[1] || postedMatch[0];
+    }
+
     // Create external ID from URL
     const externalId = url.replace(/[^a-zA-Z0-9]/g, '').substring(0, 100);
 
     return {
-      title: cleanTitle || 'L&D Position',
-      company,
-      location,
-      locationType,
-      employmentType,
-      salary,
-      description: description || markdown.substring(0, 500),
-      applyUrl: url,
-      externalId,
-      source,
+      job: {
+        title: cleanTitle || 'L&D Position',
+        company,
+        location,
+        locationType,
+        employmentType,
+        salary,
+        description: description || markdown.substring(0, 500),
+        applyUrl: url,
+        externalId,
+        source,
+      },
+      postedDateStr,
     };
   } catch (err) {
     console.error('Error parsing job:', err);
-    return null;
+    return { job: null };
   }
 }
