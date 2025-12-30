@@ -1,20 +1,25 @@
 import { useState, useEffect } from "react";
-import { Search, MapPin, Briefcase, Clock, DollarSign, ExternalLink, Loader2 } from "lucide-react";
+import { Search, MapPin, Briefcase, Clock, DollarSign, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { categories } from "@/data/mockData";
-import { fetchJobs } from "@/lib/api/jobs";
+import { fetchJobs, scrapeJobs } from "@/lib/api/jobs";
 import type { Job } from "@/types";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 const experienceLevels = ["Entry Level", "Mid Level", "Senior", "Lead", "Director"];
 const employmentTypes = ["Full-time", "Part-time", "Contract", "Freelance"];
 const workLocations = ["Remote", "Hybrid", "On-site"];
 
 const JobsPage = () => {
+  const { isAdmin } = useAuth();
+  const { toast } = useToast();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isScraping, setIsScraping] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedExperience, setSelectedExperience] = useState<string[]>([]);
@@ -30,6 +35,22 @@ const JobsPage = () => {
     const data = await fetchJobs();
     setJobs(data);
     setIsLoading(false);
+  };
+
+  const handleScrape = async () => {
+    setIsScraping(true);
+    toast({ title: "Scraping jobs...", description: "This may take a minute." });
+    
+    const result = await scrapeJobs();
+    
+    if (result.success) {
+      toast({ title: "Success!", description: result.message });
+      await loadJobs();
+    } else {
+      toast({ title: "Error", description: result.message, variant: "destructive" });
+    }
+    
+    setIsScraping(false);
   };
 
   const toggleFilter = (value: string, selected: string[], setSelected: (val: string[]) => void) => {
@@ -54,11 +75,23 @@ const JobsPage = () => {
       {/* Header */}
       <div className="border-b border-border bg-background py-8">
         <div className="container">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold mb-2">L&D Job Listings</h1>
-            <p className="text-muted-foreground text-lg">
-              Discover opportunities in instructional design, e-learning development, and corporate training
-            </p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl md:text-4xl font-bold mb-2">L&D Job Listings</h1>
+              <p className="text-muted-foreground text-lg">
+                Discover opportunities in instructional design, e-learning development, and corporate training
+              </p>
+            </div>
+            {isAdmin && (
+              <Button onClick={handleScrape} disabled={isScraping} className="gap-2">
+                {isScraping ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {isScraping ? "Scraping..." : "Scrape New Jobs"}
+              </Button>
+            )}
           </div>
         </div>
       </div>
