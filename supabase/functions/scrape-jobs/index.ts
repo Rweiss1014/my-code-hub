@@ -276,11 +276,29 @@ function parseJobFromResult(result: any): { job: ScrapedJob | null; postedDateSt
       employmentType = 'Contract';
     }
 
-    // Extract salary if present
+    // Extract salary if present - prioritize explicit salary patterns over mentions in titles
     let salary: string | undefined;
-    const salaryMatch = markdown.match(/\$[\d,]+(?:\s*-\s*\$[\d,]+)?(?:\s*(?:per|\/)\s*(?:year|hour|hr|annually))?/i);
-    if (salaryMatch) {
-      salary = salaryMatch[0];
+    // Look for salary ranges with context (e.g., "$75 - $85 per hour", "$120,000 - $150,000 a year")
+    const salaryPatterns = [
+      /\$[\d,]+(?:\.\d{2})?\s*(?:-|to)\s*\$[\d,]+(?:\.\d{2})?\s*(?:per|a|\/)\s*(?:hour|hr|year|annually|month)/i,
+      /\$[\d,]+(?:\.\d{2})?\s*(?:per|a|\/)\s*(?:hour|hr|year|annually|month)/i,
+      /\$[\d,]+(?:\.\d{2})?\s*(?:-|to)\s*\$[\d,]+(?:\.\d{2})?\s*(?:hourly|yearly|annual)/i,
+    ];
+    
+    for (const pattern of salaryPatterns) {
+      const match = markdown.match(pattern);
+      if (match) {
+        salary = match[0];
+        break;
+      }
+    }
+    
+    // Skip salary if it's likely from a title/aggregator page (contains "k Jobs" pattern)
+    if (!salary) {
+      const fallbackMatch = markdown.match(/\$[\d,]+(?:\s*-\s*\$[\d,]+)?/i);
+      if (fallbackMatch && !fallbackMatch[0].includes('k') && !title.includes(fallbackMatch[0])) {
+        salary = fallbackMatch[0];
+      }
     }
 
     // Extract posted date
