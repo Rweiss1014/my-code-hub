@@ -1,24 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Search, MapPin, Clock, DollarSign, Linkedin, Globe, ExternalLink, Star, UserPlus } from "lucide-react";
+import { Search, DollarSign, Globe, UserPlus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { freelancers, categories } from "@/data/mockData";
-const skills = [
-  "Articulate Storyline", "Articulate Rise", "Adobe Captivate", "Camtasia",
-  "After Effects", "HTML5", "JavaScript", "SCORM", "xAPI", "LMS Administration"
-];
+import { supabase } from "@/integrations/supabase/client";
 
-const availabilityOptions = ["Available Now", "Limited Availability"];
+interface Freelancer {
+  id: string;
+  full_name: string;
+  title: string;
+  bio: string | null;
+  skills: string[];
+  hourly_rate: string | null;
+  portfolio_url: string | null;
+}
 
 const FreelancersPage = () => {
+  const [freelancers, setFreelancers] = useState<Freelancer[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [remoteOnly, setRemoteOnly] = useState(false);
-  const [selectedSpecializations, setSelectedSpecializations] = useState<string[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [selectedAvailability, setSelectedAvailability] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetchFreelancers();
+  }, []);
+
+  const fetchFreelancers = async () => {
+    const { data, error } = await supabase
+      .from("freelancers")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (!error && data) {
+      setFreelancers(data);
+    }
+    setIsLoading(false);
+  };
 
   const toggleFilter = (value: string, selected: string[], setSelected: (val: string[]) => void) => {
     if (selected.includes(value)) {
@@ -28,31 +47,26 @@ const FreelancersPage = () => {
     }
   };
 
+  // Get unique skills from all freelancers
+  const allSkills = [...new Set(freelancers.flatMap((f) => f.skills))].sort();
+
   const filteredFreelancers = freelancers.filter((freelancer) => {
-    const matchesSearch = freelancer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    const matchesSearch =
+      freelancer.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       freelancer.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      freelancer.skills.some(skill => skill.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesRemote = !remoteOnly || freelancer.remoteOk;
-    const matchesSpecialization = selectedSpecializations.length === 0 ||
-      freelancer.specializations.some(spec => selectedSpecializations.includes(spec));
-    const matchesSkills = selectedSkills.length === 0 ||
-      freelancer.skills.some(skill => selectedSkills.includes(skill));
-    return matchesSearch && matchesRemote && matchesSpecialization && matchesSkills;
+      freelancer.skills.some((skill) => skill.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesSkills =
+      selectedSkills.length === 0 ||
+      freelancer.skills.some((skill) => selectedSkills.includes(skill));
+    return matchesSearch && matchesSkills;
   });
 
-  const getAvailabilityBadge = (availability: string) => {
-    switch (availability) {
-      case "available":
-        return <Badge className="bg-success text-success-foreground">Available</Badge>;
-      case "limited":
-        return <Badge className="bg-warning text-warning-foreground">Limited</Badge>;
-      default:
-        return <Badge variant="secondary">Unavailable</Badge>;
-    }
-  };
-
   const getInitials = (name: string) => {
-    return name.split(" ").map(n => n[0]).join("").toUpperCase();
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase();
   };
 
   return (
@@ -94,177 +108,127 @@ const FreelancersPage = () => {
       <div className="container py-8">
         <div className="flex gap-8">
           {/* Filters Sidebar */}
-          <aside className="hidden lg:block w-64 flex-shrink-0">
-            <div className="sticky top-24 space-y-6">
-              <h2 className="font-semibold text-lg">Filters</h2>
+          {allSkills.length > 0 && (
+            <aside className="hidden lg:block w-64 flex-shrink-0">
+              <div className="sticky top-24 space-y-6">
+                <h2 className="font-semibold text-lg">Filters</h2>
 
-              {/* Remote Only */}
-              <div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <Checkbox
-                    checked={remoteOnly}
-                    onCheckedChange={() => setRemoteOnly(!remoteOnly)}
-                  />
-                  <span className="text-sm">Remote Available Only</span>
-                </label>
-              </div>
-
-              {/* Specialization Filter */}
-              <div>
-                <h3 className="font-medium mb-3">Specialization</h3>
-                <div className="space-y-2">
-                  {categories.map((category) => (
-                    <label key={category.id} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={selectedSpecializations.includes(category.name)}
-                        onCheckedChange={() => toggleFilter(category.name, selectedSpecializations, setSelectedSpecializations)}
-                      />
-                      <span className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                        {category.name}
-                      </span>
-                    </label>
-                  ))}
+                {/* Skills Filter */}
+                <div>
+                  <h3 className="font-medium mb-3">Skills</h3>
+                  <div className="space-y-2">
+                    {allSkills.map((skill) => (
+                      <label key={skill} className="flex items-center gap-2 cursor-pointer">
+                        <Checkbox
+                          checked={selectedSkills.includes(skill)}
+                          onCheckedChange={() => toggleFilter(skill, selectedSkills, setSelectedSkills)}
+                        />
+                        <span className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                          {skill}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
-
-              {/* Skills Filter */}
-              <div>
-                <h3 className="font-medium mb-3">Skills</h3>
-                <div className="space-y-2">
-                  {skills.map((skill) => (
-                    <label key={skill} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={selectedSkills.includes(skill)}
-                        onCheckedChange={() => toggleFilter(skill, selectedSkills, setSelectedSkills)}
-                      />
-                      <span className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                        {skill}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Availability Filter */}
-              <div>
-                <h3 className="font-medium mb-3">Availability</h3>
-                <div className="space-y-2">
-                  {availabilityOptions.map((option) => (
-                    <label key={option} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={selectedAvailability.includes(option)}
-                        onCheckedChange={() => toggleFilter(option, selectedAvailability, setSelectedAvailability)}
-                      />
-                      <span className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                        {option}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </aside>
+            </aside>
+          )}
 
           {/* Freelancer Cards */}
           <main className="flex-1">
-            <p className="text-sm text-muted-foreground mb-4">
-              {filteredFreelancers.length} professionals found
-            </p>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : filteredFreelancers.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground mb-4">
+                  No freelancers found. Be the first to join!
+                </p>
+                <Link to="/post-freelancer">
+                  <Button className="gap-2">
+                    <UserPlus className="h-4 w-4" />
+                    Join as Freelancer
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {filteredFreelancers.length} professionals found
+                </p>
 
-            <div className="grid md:grid-cols-2 gap-6">
-              {filteredFreelancers.map((freelancer) => (
-                <article
-                  key={freelancer.id}
-                  className={`bg-card rounded-xl border p-6 hover:shadow-card-hover transition-all duration-200 ${
-                    freelancer.featured ? "border-primary/50" : "border-border hover:border-primary/30"
-                  }`}
-                >
-                  {freelancer.featured && (
-                    <div className="flex items-center gap-1 text-primary text-sm font-medium mb-3">
-                      <Star className="h-4 w-4 fill-primary" />
-                      Featured Professional
-                    </div>
-                  )}
-
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-primary font-semibold">{getInitials(freelancer.name)}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="font-semibold truncate">{freelancer.name}</h3>
-                        {getAvailabilityBadge(freelancer.availability)}
+                <div className="grid md:grid-cols-2 gap-6">
+                  {filteredFreelancers.map((freelancer) => (
+                    <article
+                      key={freelancer.id}
+                      className="bg-card rounded-xl border border-border p-6 hover:shadow-card-hover hover:border-primary/30 transition-all duration-200"
+                    >
+                      <div className="flex items-start gap-4 mb-4">
+                        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-primary font-semibold">
+                            {getInitials(freelancer.full_name)}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold truncate">{freelancer.full_name}</h3>
+                          <p className="text-sm text-muted-foreground truncate">{freelancer.title}</p>
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">{freelancer.title}</p>
-                    </div>
-                  </div>
 
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground mb-4">
-                    <span className="flex items-center gap-1">
-                      <MapPin className="h-4 w-4" />
-                      {freelancer.location}
-                    </span>
-                    {freelancer.remoteOk && (
-                      <span className="text-primary font-medium">Remote OK</span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      {freelancer.experience}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <DollarSign className="h-4 w-4" />
-                      {freelancer.hourlyRate}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {freelancer.specializations.map((spec) => (
-                      <Badge key={spec} variant="secondary" className="text-xs">
-                        {spec}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  <div className="mb-4">
-                    <p className="text-xs text-muted-foreground mb-2">Skills</p>
-                    <div className="flex flex-wrap gap-2">
-                      {freelancer.skills.slice(0, 4).map((skill) => (
-                        <Badge key={skill} variant="outline" className="text-xs">
-                          {skill}
-                        </Badge>
-                      ))}
-                      {freelancer.skills.length > 4 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{freelancer.skills.length - 4} more
-                        </Badge>
+                      {freelancer.hourly_rate && (
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground mb-4">
+                          <DollarSign className="h-4 w-4" />
+                          {freelancer.hourly_rate}
+                        </div>
                       )}
-                    </div>
-                  </div>
 
-                  <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                    {freelancer.bio}
-                  </p>
+                      {freelancer.skills.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs text-muted-foreground mb-2">Skills</p>
+                          <div className="flex flex-wrap gap-2">
+                            {freelancer.skills.slice(0, 4).map((skill) => (
+                              <Badge key={skill} variant="outline" className="text-xs">
+                                {skill}
+                              </Badge>
+                            ))}
+                            {freelancer.skills.length > 4 && (
+                              <Badge variant="outline" className="text-xs">
+                                +{freelancer.skills.length - 4} more
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
-                  <div className="flex items-center justify-between pt-4 border-t border-border">
-                    <div className="flex items-center gap-2">
-                      {freelancer.linkedIn && (
-                        <a href={freelancer.linkedIn} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
-                          <Linkedin className="h-4 w-4" />
-                        </a>
+                      {freelancer.bio && (
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+                          {freelancer.bio}
+                        </p>
                       )}
-                      {(freelancer.website || freelancer.portfolio) && (
-                        <a href={freelancer.website || freelancer.portfolio} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
-                          <Globe className="h-4 w-4" />
-                        </a>
+
+                      {freelancer.portfolio_url && (
+                        <div className="flex items-center justify-between pt-4 border-t border-border">
+                          <a
+                            href={freelancer.portfolio_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Globe className="h-4 w-4" />
+                          </a>
+                          <Button size="sm" variant="outline" asChild>
+                            <a href={freelancer.portfolio_url} target="_blank" rel="noopener noreferrer">
+                              View Portfolio
+                            </a>
+                          </Button>
+                        </div>
                       )}
-                    </div>
-                    <Button size="sm" variant="outline">
-                      View Profile
-                    </Button>
-                  </div>
-                </article>
-              ))}
-            </div>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
           </main>
         </div>
       </div>
