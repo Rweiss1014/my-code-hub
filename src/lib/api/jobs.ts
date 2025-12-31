@@ -2,10 +2,17 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Job } from '@/types';
 
 export async function fetchJobs(): Promise<Job[]> {
+  // Only show jobs from major, reputable job boards
+  const allowedSources = [
+    'Indeed', 'LinkedIn', 'ZipRecruiter', 'Glassdoor', 'Monster', 
+    'SimplyHired', 'CareerBuilder', 'FlexJobs', 'Built In', 'Ladders',
+    'Remote.co', 'DailyRemote', 'Workday', 'Upwork'
+  ];
+  
   const { data, error } = await supabase
     .from('jobs')
     .select('*')
-    .not('source', 'in', '(Adzuna,BeBee,SalesJobs,WhatJobs,Jobs For Stevenage Fans)')
+    .in('source', allowedSources)
     .order('created_at', { ascending: false });
 
   if (error) {
