@@ -48,9 +48,17 @@ Deno.serve(async (req) => {
     for (const job of data.data || []) {
       const applyUrl = job.job_apply_link || job.job_google_link;
       const externalId = job.job_id;
+      const publisher = job.job_publisher || "JSearch";
       
       if (!applyUrl || !externalId) {
         console.log("Skipping job - no apply URL or ID:", job.job_title);
+        skippedCount++;
+        continue;
+      }
+
+      // Skip Adzuna jobs
+      if (publisher.toLowerCase().includes('adzuna')) {
+        console.log("Skipping Adzuna job:", job.job_title);
         skippedCount++;
         continue;
       }
