@@ -10,8 +10,9 @@ const corsHeaders = {
 };
 
 const DEFAULT_SEARCH_TERMS = [
+  "Learning and Development",
   "Learning and Development Manager",
-  "L&D Manager", 
+  "L&D Manager",
   "Training Manager",
   "Instructional Designer",
   "Corporate Trainer",
@@ -19,6 +20,27 @@ const DEFAULT_SEARCH_TERMS = [
   "Talent Development",
   "Learning Director",
   "Training Director",
+  "Learning Program Manager",
+  "Enablement Manager",
+  "Curriculum Developer",
+  "eLearning Developer",
+  "Leadership Development",
+];
+
+const DEFAULT_LOCATIONS = [
+  "Remote",
+  "Orlando, FL",
+  "Miami, FL",
+  "Tampa, FL",
+  "Jacksonville, FL",
+  "Maitland, FL",
+  "Altamonte Springs, FL",
+  "Fort Lauderdale, FL",
+  "West Palm Beach, FL",
+  "Boca Raton, FL",
+  "St. Petersburg, FL",
+  "Sarasota, FL",
+  "Tallahassee, FL",
 ];
 
 Deno.serve(async (req) => {
@@ -28,123 +50,125 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { searchTerms, location } = body;
+    const { searchTerms, locations } = body;
     
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
     
     const termsToSearch = searchTerms || DEFAULT_SEARCH_TERMS;
-    const searchLocation = location || "Remote";
+    const locationsToSearch = locations || DEFAULT_LOCATIONS;
     
     let totalInserted = 0;
     let totalSkipped = 0;
     let totalFound = 0;
+    let searchesCompleted = 0;
+    const totalSearches = termsToSearch.length * locationsToSearch.length;
 
-    for (const searchTerm of termsToSearch) {
-      const query = encodeURIComponent(`${searchTerm} in ${searchLocation}`);
-      console.log(`Searching JSearch for: ${query}`);
-      
-      const response = await fetch(
-        `https://jsearch.p.rapidapi.com/search?query=${query}&num_pages=1`,
-        {
-          headers: {
-            "X-RapidAPI-Key": JSEARCH_API_KEY!,
-            "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
-          },
-        }
-      );
+    console.log(`Starting scrape: ${termsToSearch.length} terms × ${locationsToSearch.length} locations = ${totalSearches} searches`);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`JSearch API error for "${searchTerm}":`, response.status, errorText);
-        continue; // Skip this term but continue with others
-      }
-
-      const data = await response.json();
-      const jobCount = data.data?.length || 0;
-      console.log(`JSearch returned ${jobCount} jobs for "${searchTerm}"`);
-      totalFound += jobCount;
-
-      for (const job of data.data || []) {
-        const applyUrl = job.job_apply_link || job.job_google_link;
-        const externalId = job.job_id;
-        const publisher = job.job_publisher || "JSearch";
+    for (const searchLocation of locationsToSearch) {
+      for (const searchTerm of termsToSearch) {
+        const query = encodeURIComponent(`${searchTerm} in ${searchLocation}`);
+        console.log(`[${++searchesCompleted}/${totalSearches}] Searching: ${searchTerm} in ${searchLocation}`);
         
-        if (!applyUrl || !externalId) {
-          console.log("Skipping job - no apply URL or ID:", job.job_title);
-          totalSkipped++;
+        const response = await fetch(
+          `https://jsearch.p.rapidapi.com/search?query=${query}&num_pages=1`,
+          {
+            headers: {
+              "X-RapidAPI-Key": JSEARCH_API_KEY!,
+              "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+            },
+          }
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`JSearch API error for "${searchTerm}" in "${searchLocation}":`, response.status, errorText);
           continue;
         }
 
-        // Skip Adzuna jobs
-        if (publisher.toLowerCase().includes('adzuna')) {
-          console.log("Skipping Adzuna job:", job.job_title);
-          totalSkipped++;
-          continue;
-        }
+        const data = await response.json();
+        const jobCount = data.data?.length || 0;
+        console.log(`Found ${jobCount} jobs`);
+        totalFound += jobCount;
 
-        // Check if job already exists
-        const { data: existing } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("external_id", externalId)
-          .maybeSingle();
+        for (const job of data.data || []) {
+          const applyUrl = job.job_apply_link || job.job_google_link;
+          const externalId = job.job_id;
+          const publisher = job.job_publisher || "JSearch";
+          
+          if (!applyUrl || !externalId) {
+            totalSkipped++;
+            continue;
+          }
 
-        if (existing) {
-          console.log("Skipping duplicate:", job.job_title);
-          totalSkipped++;
-          continue;
-        }
+          // Skip Adzuna jobs
+          if (publisher.toLowerCase().includes('adzuna')) {
+            totalSkipped++;
+            continue;
+          }
 
-        // Build salary string
-        let salary: string | null = null;
-        if (job.job_min_salary && job.job_max_salary) {
-          salary = `$${job.job_min_salary.toLocaleString()} - $${job.job_max_salary.toLocaleString()}`;
-        } else if (job.job_salary_period && job.job_min_salary) {
-          salary = `$${job.job_min_salary.toLocaleString()} per ${job.job_salary_period}`;
-        }
+          // Check if job already exists
+          const { data: existing } = await supabase
+            .from("jobs")
+            .select("id")
+            .eq("external_id", externalId)
+            .maybeSingle();
 
-        // Build location string
-        let jobLocation = "Unknown";
-        if (job.job_city && job.job_state) {
-          jobLocation = `${job.job_city}, ${job.job_state}`;
-        } else if (job.job_city) {
-          jobLocation = job.job_city;
-        } else if (job.job_country) {
-          jobLocation = job.job_country;
+          if (existing) {
+            totalSkipped++;
+            continue;
+          }
+
+          // Build salary string
+          let salary: string | null = null;
+          if (job.job_min_salary && job.job_max_salary) {
+            salary = `$${job.job_min_salary.toLocaleString()} - $${job.job_max_salary.toLocaleString()}`;
+          } else if (job.job_salary_period && job.job_min_salary) {
+            salary = `$${job.job_min_salary.toLocaleString()} per ${job.job_salary_period}`;
+          }
+
+          // Build location string
+          let jobLocation = "Unknown";
+          if (job.job_city && job.job_state) {
+            jobLocation = `${job.job_city}, ${job.job_state}`;
+          } else if (job.job_city) {
+            jobLocation = job.job_city;
+          } else if (job.job_country) {
+            jobLocation = job.job_country;
+          }
+          
+          if (job.job_is_remote) {
+            jobLocation = jobLocation === "Unknown" ? "Remote" : `Remote in ${jobLocation}`;
+          }
+
+          const { error: insertError } = await supabase.from("jobs").insert({
+            title: job.job_title,
+            company: job.employer_name,
+            location: jobLocation,
+            apply_url: applyUrl,
+            salary: salary,
+            description: job.job_description?.substring(0, 2000),
+            source: job.job_publisher || "JSearch",
+            external_id: externalId,
+            category: "Learning & Development",
+            location_type: job.job_is_remote ? "Remote" : "On-site",
+            employment_type: job.job_employment_type || "Full-time",
+            posted_at: job.job_posted_at_datetime_utc || new Date().toISOString(),
+          });
+
+          if (insertError) {
+            console.error("Insert error:", insertError);
+          } else {
+            totalInserted++;
+          }
         }
         
-        if (job.job_is_remote) {
-          jobLocation = jobLocation === "Unknown" ? "Remote" : `Remote in ${jobLocation}`;
-        }
-
-        const { error: insertError } = await supabase.from("jobs").insert({
-          title: job.job_title,
-          company: job.employer_name,
-          location: jobLocation,
-          apply_url: applyUrl,
-          salary: salary,
-          description: job.job_description?.substring(0, 2000),
-          source: job.job_publisher || "JSearch",
-          external_id: externalId,
-          category: "Learning & Development",
-          location_type: job.job_is_remote ? "Remote" : "On-site",
-          employment_type: job.job_employment_type || "Full-time",
-          posted_at: job.job_posted_at_datetime_utc || new Date().toISOString(),
-        });
-
-        if (insertError) {
-          console.error("Insert error:", insertError);
-        } else {
-          totalInserted++;
-          console.log("Inserted:", job.job_title, "at", job.employer_name);
-        }
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
-      
-      // Add a small delay between API calls to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
-    console.log(`Scrape complete: ${totalInserted} inserted, ${totalSkipped} skipped, ${totalFound} total found`);
+    console.log(`Scrape complete: ${totalInserted} inserted, ${totalSkipped} skipped, ${totalFound} found across ${searchesCompleted} searches`);
 
     return new Response(
       JSON.stringify({ 
@@ -152,7 +176,9 @@ Deno.serve(async (req) => {
         inserted: totalInserted, 
         skipped: totalSkipped,
         total_found: totalFound,
-        terms_searched: termsToSearch.length
+        searches_completed: searchesCompleted,
+        terms_count: termsToSearch.length,
+        locations_count: locationsToSearch.length
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
