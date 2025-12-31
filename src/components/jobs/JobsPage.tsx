@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Search, MapPin, Briefcase, Clock, DollarSign, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { categories } from "@/data/mockData";
 import { fetchJobs, scrapeJobs } from "@/lib/api/jobs";
 import type { Job } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
@@ -60,6 +59,15 @@ const JobsPage = () => {
       setSelected([...selected, value]);
     }
   };
+
+  // Derive unique categories from loaded jobs
+  const categories = useMemo(() => {
+    const uniqueCategories = [...new Set(jobs.map(job => job.category))];
+    return uniqueCategories.map((name, index) => ({
+      id: String(index + 1),
+      name,
+    }));
+  }, [jobs]);
 
   const filteredJobs = jobs.filter((job) => {
     const matchesSearch = job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
