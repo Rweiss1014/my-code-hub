@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Search, MapPin, Clock, DollarSign, Linkedin, Globe, ExternalLink, Star } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Search, MapPin, Clock, DollarSign, Linkedin, Globe, ExternalLink, Star, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { freelancers, categories } from "@/data/mockData";
-
 const skills = [
   "Articulate Storyline", "Articulate Rise", "Adobe Captivate", "Camtasia",
   "After Effects", "HTML5", "JavaScript", "SCORM", "xAPI", "LMS Administration"
@@ -59,11 +59,19 @@ const FreelancersPage = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border bg-background py-8">
-        <div className="container">
-          <h1 className="text-3xl md:text-4xl font-bold mb-2">L&D Freelancer Directory</h1>
-          <p className="text-muted-foreground text-lg">
-            Connect with expert instructional designers, e-learning developers, and training consultants
-          </p>
+        <div className="container flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold mb-2">L&D Freelancer Directory</h1>
+            <p className="text-muted-foreground text-lg">
+              Connect with expert instructional designers, e-learning developers, and training consultants
+            </p>
+          </div>
+          <Link to="/post-freelancer">
+            <Button className="gap-2">
+              <UserPlus className="h-4 w-4" />
+              Join as Freelancer
+            </Button>
+          </Link>
         </div>
       </div>
 

@@ -14,6 +14,167 @@ export type Database = {
   }
   public: {
     Tables: {
+      freelancer_submissions: {
+        Row: {
+          admin_feedback: string | null
+          bio: string | null
+          created_at: string
+          full_name: string
+          hourly_rate: string | null
+          id: string
+          portfolio_url: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          skills: string[]
+          status: Database["public"]["Enums"]["submission_status"]
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_feedback?: string | null
+          bio?: string | null
+          created_at?: string
+          full_name: string
+          hourly_rate?: string | null
+          id?: string
+          portfolio_url?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          skills?: string[]
+          status?: Database["public"]["Enums"]["submission_status"]
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_feedback?: string | null
+          bio?: string | null
+          created_at?: string
+          full_name?: string
+          hourly_rate?: string | null
+          id?: string
+          portfolio_url?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          skills?: string[]
+          status?: Database["public"]["Enums"]["submission_status"]
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      freelancers: {
+        Row: {
+          bio: string | null
+          created_at: string
+          full_name: string
+          hourly_rate: string | null
+          id: string
+          portfolio_url: string | null
+          skills: string[]
+          submission_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bio?: string | null
+          created_at?: string
+          full_name: string
+          hourly_rate?: string | null
+          id?: string
+          portfolio_url?: string | null
+          skills?: string[]
+          submission_id?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bio?: string | null
+          created_at?: string
+          full_name?: string
+          hourly_rate?: string | null
+          id?: string
+          portfolio_url?: string | null
+          skills?: string[]
+          submission_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "freelancers_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "freelancer_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_submissions: {
+        Row: {
+          admin_feedback: string | null
+          apply_url: string | null
+          category: string
+          company: string
+          created_at: string
+          description: string | null
+          employment_type: string
+          id: string
+          location: string
+          location_type: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          salary: string | null
+          status: Database["public"]["Enums"]["submission_status"]
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_feedback?: string | null
+          apply_url?: string | null
+          category?: string
+          company: string
+          created_at?: string
+          description?: string | null
+          employment_type?: string
+          id?: string
+          location: string
+          location_type?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          salary?: string | null
+          status?: Database["public"]["Enums"]["submission_status"]
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_feedback?: string | null
+          apply_url?: string | null
+          category?: string
+          company?: string
+          created_at?: string
+          description?: string | null
+          employment_type?: string
+          id?: string
+          location?: string
+          location_type?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          salary?: string | null
+          status?: Database["public"]["Enums"]["submission_status"]
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       jobs: {
         Row: {
           apply_url: string | null
@@ -65,6 +226,39 @@ export type Database = {
           source?: string
           title?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          link: string | null
+          message: string
+          read: boolean
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          link?: string | null
+          message: string
+          read?: boolean
+          title: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          link?: string | null
+          message?: string
+          read?: boolean
+          title?: string
+          type?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -128,6 +322,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      submission_status: "pending" | "approved" | "rejected"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -256,6 +451,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      submission_status: ["pending", "approved", "rejected"],
     },
   },
 } as const
