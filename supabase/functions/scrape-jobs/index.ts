@@ -10,7 +10,6 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -19,17 +18,15 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { searchTerm, location } = body;
 
-    // Initialize Supabase client with service role (bypasses RLS)
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Build Indeed search URL
-    const encodedTerm = encodeURIComponent(searchTerm || "Learning and Development");
+    const encodedTerm = encodeURIComponent(searchTerm || "instructional designer");
     const encodedLocation = encodeURIComponent(location || "Remote");
     const indeedUrl = `https://www.indeed.com/jobs?q=${encodedTerm}&l=${encodedLocation}`;
 
     console.log(`Scraping: ${indeedUrl}`);
 
-    // Use Firecrawl's scrape endpoint with extraction
+    // Use Firecrawl with markdown + links + json extraction
     const response = await fetch("https://api.firecrawl.dev/v1/scrape", {
       method: "POST",
       headers: {
@@ -38,8 +35,8 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         url: indeedUrl,
-        formats: ["extract"],
-        extract: {
+        formats: ["markdown", "links", "json"],
+        jsonOptions: {
           schema: {
             type: "object",
             properties: {
@@ -48,94 +45,90 @@ Deno.serve(async (req) => {
                 items: {
                   type: "object",
                   properties: {
-                    title: { type: "string", description: "Job title" },
-                    company: { type: "string", description: "Company name" },
-                    location: { type: "string", description: "Job location" },
-                    apply_url: { type: "string", description: "Direct URL to the job posting" },
-                    salary: { type: "string", description: "Salary if listed" },
-                    description: { type: "string", description: "Job description snippet" },
+                    title: { type: "string" },
+                    company: { type: "string" },
+                    location: { type: "string" },
+                    job_key: { type: "string", description: "The jk parameter value from the job link, a 16-character hex string" },
+                    salary: { type: "string" },
+                    posted: { type: "string" },
                   },
-                  required: ["title", "company", "apply_url"]
+                  required: ["title", "company", "job_key"]
                 }
               }
             },
             required: ["jobs"]
           },
-          prompt: `Extract all job listings from this Indeed search results page.
-For each job, extract:
-- title: The job title
-- company: Company name
-- location: Job location
-- apply_url: THE DIRECT LINK TO THE JOB POSTING. This is critical - look for links containing 'viewjob?jk=' or 'rc/clk?jk=' with a job key. Do NOT return the search page URL.
-- salary: Salary if shown
-- description: Brief job description
-
-The apply_url MUST be the link to view that specific job, not the search results page.`
-        }
+          prompt: "Extract all job listings visible on this Indeed search results page. For each job, find the job_key which is the 'jk' parameter in the job link (e.g., from '/rc/clk?jk=abc123def456' extract 'abc123def456'). This is a 16-character hexadecimal string."
+        },
+        waitFor: 3000,
       }),
     });
 
     if (!response.ok) {
       const error = await response.text();
+      console.error("Firecrawl API error:", error);
       throw new Error(`Firecrawl error: ${error}`);
     }
 
     const data = await response.json();
-    console.log("Firecrawl response:", JSON.stringify(data.extract?.jobs?.length || 0), "jobs found");
+    console.log("Firecrawl success:", data.success);
+    
+    const pageData = data.data || data;
+    console.log("Data keys:", Object.keys(pageData));
+    
+    const jobs = pageData.json?.jobs || [];
+    const links = pageData.links || [];
+    
+    console.log(`Found ${jobs.length} jobs via JSON extraction`);
+    console.log(`Found ${links.length} links on page`);
 
-    // Process and insert jobs
+    // Extract job keys from links as primary source
+    const jobKeysFromLinks = new Map<string, string>();
+    for (const link of links) {
+      if (typeof link === 'string') {
+        const match = link.match(/jk=([a-f0-9]{16})/i);
+        if (match && !jobKeysFromLinks.has(match[1])) {
+          jobKeysFromLinks.set(match[1], link);
+        }
+      }
+    }
+    console.log(`Found ${jobKeysFromLinks.size} job keys from links`);
+
     let insertedCount = 0;
     let skippedCount = 0;
 
-    if (data.extract?.jobs) {
-      for (const job of data.extract.jobs) {
-        const applyUrl = normalizeIndeedUrl(job.apply_url);
-
-        // Skip if no valid URL
-        if (!applyUrl) {
-          console.log("Skipping job - no valid URL:", job.title);
+    // If JSON extraction found jobs, use those
+    if (jobs.length > 0) {
+      for (const job of jobs) {
+        const jobKey = job.job_key?.match(/[a-f0-9]{16}/i)?.[0];
+        if (!jobKey) {
+          console.log("Skipping job - no valid job key:", job.title);
           skippedCount++;
           continue;
         }
 
-        // Generate external_id from the job URL for deduplication
-        const externalId = extractJobKey(applyUrl) || applyUrl;
-
-        // Check if job already exists
-        const { data: existing } = await supabase
-          .from("jobs")
-          .select("id")
-          .eq("external_id", externalId)
-          .maybeSingle();
-
-        if (existing) {
-          console.log("Skipping duplicate:", job.title);
-          skippedCount++;
-          continue;
-        }
-
-        // Insert new job
-        const { error: insertError } = await supabase.from("jobs").insert({
-          title: job.title || "Unknown Title",
-          company: job.company || "Unknown Company",
-          location: job.location || location || "Remote",
-          apply_url: applyUrl,
-          salary: job.salary || null,
-          description: job.description || null,
-          source: "Indeed",
-          external_id: externalId,
-          category: "Learning & Development",
-          location_type: job.location?.toLowerCase().includes("remote") ? "Remote" : "On-site",
-          employment_type: "Full-time",
-          posted_at: new Date().toISOString(),
+        const result = await insertJob(supabase, {
+          title: job.title,
+          company: job.company,
+          location: job.location || location,
+          jobKey,
+          salary: job.salary,
         });
-
-        if (insertError) {
-          console.error("Insert error:", insertError);
-        } else {
-          insertedCount++;
-          console.log("Inserted job:", job.title, "at", job.company);
-        }
+        
+        if (result === 'inserted') insertedCount++;
+        else if (result === 'skipped') skippedCount++;
+      }
+    } else {
+      // Fallback: parse markdown to extract jobs
+      console.log("JSON extraction found no jobs, parsing markdown...");
+      const markdown = pageData.markdown || '';
+      const parsedJobs = parseJobsFromMarkdown(markdown, jobKeysFromLinks);
+      console.log(`Parsed ${parsedJobs.length} jobs from markdown`);
+      
+      for (const job of parsedJobs) {
+        const result = await insertJob(supabase, job);
+        if (result === 'inserted') insertedCount++;
+        else if (result === 'skipped') skippedCount++;
       }
     }
 
@@ -144,7 +137,7 @@ The apply_url MUST be the link to view that specific job, not the search results
         success: true,
         inserted: insertedCount,
         skipped: skippedCount,
-        total_found: data.extract?.jobs?.length || 0
+        total_found: jobs.length || jobKeysFromLinks.size,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -159,34 +152,102 @@ The apply_url MUST be the link to view that specific job, not the search results
   }
 });
 
-// Normalize Indeed job URLs to ensure they're direct links
-function normalizeIndeedUrl(url: string): string {
-  if (!url) return "";
-
-  // If it's already a full Indeed URL, return it
-  if (url.startsWith("https://www.indeed.com/")) {
-    return url;
-  }
-
-  if (url.startsWith("http")) {
-    return url;
-  }
-
-  // If it's a relative Indeed URL, make it absolute
-  if (url.startsWith("/")) {
-    return `https://www.indeed.com${url}`;
-  }
-
-  // If we just have a job key (jk), construct the URL
-  if (url.match(/^[a-f0-9]{16}$/i)) {
-    return `https://www.indeed.com/viewjob?jk=${url}`;
-  }
-
-  return url;
+interface JobData {
+  title: string;
+  company: string;
+  location: string;
+  jobKey: string;
+  salary?: string;
 }
 
-// Extract the job key from an Indeed URL for deduplication
-function extractJobKey(url: string): string | null {
-  const match = url.match(/jk=([a-f0-9]+)/i);
-  return match ? match[1] : null;
+async function insertJob(supabase: any, job: JobData): Promise<'inserted' | 'skipped' | 'error'> {
+  const applyUrl = `https://www.indeed.com/viewjob?jk=${job.jobKey}`;
+
+  // Check if job already exists
+  const { data: existing } = await supabase
+    .from("jobs")
+    .select("id")
+    .eq("external_id", job.jobKey)
+    .maybeSingle();
+
+  if (existing) {
+    console.log("Skipping duplicate:", job.title);
+    return 'skipped';
+  }
+
+  const isRemote = job.location?.toLowerCase().includes("remote");
+
+  const { error: insertError } = await supabase.from("jobs").insert({
+    title: job.title || "Unknown Title",
+    company: job.company || "Unknown Company",
+    location: job.location || "Remote",
+    apply_url: applyUrl,
+    salary: job.salary || null,
+    description: null,
+    source: "Indeed",
+    external_id: job.jobKey,
+    category: "Learning & Development",
+    location_type: isRemote ? "Remote" : "On-site",
+    employment_type: "Full-time",
+    posted_at: new Date().toISOString(),
+  });
+
+  if (insertError) {
+    console.error("Insert error:", insertError);
+    return 'error';
+  }
+  
+  console.log("Inserted:", job.title, "at", job.company, "->", applyUrl);
+  return 'inserted';
+}
+
+function parseJobsFromMarkdown(markdown: string, jobKeys: Map<string, string>): JobData[] {
+  const jobs: JobData[] = [];
+  
+  // Pattern to match job listings in Indeed's markdown format
+  // Jobs often appear as: [Title](link) \n Company \n Location
+  const jobBlockPattern = /\[([^\]]+)\]\(([^)]+jk=([a-f0-9]{16})[^)]*)\)[^\[]*?(?:\n\n|\n)([A-Z][^[]*?)(?=\n\[|\n\n\[|$)/gi;
+  
+  let match;
+  while ((match = jobBlockPattern.exec(markdown)) !== null) {
+    const title = match[1].trim();
+    const jobKey = match[3];
+    const details = match[4] || '';
+    
+    // Extract company - usually first line after the title
+    const lines = details.split('\n').filter(l => l.trim());
+    const company = lines[0]?.trim() || 'Unknown Company';
+    
+    // Extract location - look for City, ST pattern
+    const locationMatch = details.match(/([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})/);
+    const location = locationMatch?.[1] || (details.toLowerCase().includes('remote') ? 'Remote' : 'Unknown');
+    
+    // Extract salary if present
+    const salaryMatch = details.match(/\$[\d,]+(?:\s*-\s*\$[\d,]+)?(?:\s*(?:a|per)\s*(?:year|hour))?/i);
+    
+    if (title && jobKey && !title.toLowerCase().includes('salary')) {
+      jobs.push({
+        title,
+        company,
+        location,
+        jobKey,
+        salary: salaryMatch?.[0],
+      });
+    }
+  }
+  
+  // If pattern didn't work well, try simpler approach with job keys we found
+  if (jobs.length === 0 && jobKeys.size > 0) {
+    console.log("Fallback: Creating basic entries from job keys");
+    for (const [jobKey] of jobKeys) {
+      jobs.push({
+        title: "Job Listing",
+        company: "See listing",
+        location: "Remote",
+        jobKey,
+      });
+    }
+  }
+  
+  return jobs;
 }
