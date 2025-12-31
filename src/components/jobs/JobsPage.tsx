@@ -185,7 +185,7 @@ const JobsPage = () => {
         <div className="flex gap-8">
           {/* Filters Sidebar */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
-            <div className="sticky top-24 max-h-[calc(100vh-8rem)] overflow-y-auto space-y-6 pr-2">
+            <div className="space-y-6">
               <h2 className="font-semibold text-lg">Filters</h2>
 
               {/* Category Filter */}
