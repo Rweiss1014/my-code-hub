@@ -59,7 +59,11 @@ function isWithinLast30Days(dateStr: string | undefined): boolean {
 function isValidJobUrl(url: string): boolean {
   // Check if it's an actual job page, not a search results page
   if (url.includes('indeed.com')) {
-    return url.includes('/viewjob') || url.includes('/rc/clk') || url.includes('/pagead') || url.includes('jk=');
+    // Indeed job URLs contain viewjob, rc/clk, pagead, or jk= parameter
+    // But also check it's not a search page
+    const isJobPage = url.includes('/viewjob') || url.includes('/rc/clk') || url.includes('/pagead') || url.includes('jk=');
+    const isSearchPage = url.includes('/jobs?') || url.includes('/q-') || url.includes('/l-');
+    return isJobPage && !isSearchPage;
   }
   if (url.includes('linkedin.com')) {
     return url.includes('/jobs/view/');
@@ -86,93 +90,72 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log('Starting job scrape for L&D jobs in Orlando, FL and Remote...');
+    console.log('Starting job scrape for L&D jobs...');
 
     const jobs: ScrapedJob[] = [];
+    const jobUrls: Set<string> = new Set();
 
-    // L&D job titles to search for
+    // Build Indeed search URLs directly
     const ldJobTitles = [
-      // Core instructional roles
-      'Instructional Designer',
-      'Learning Experience Designer',
-      'Curriculum Designer',
-      'Learning Architect',
-      'Learning Consultant',
-      // Content and media focused
-      'eLearning Developer',
-      'Multimedia Designer Learning',
-      'Learning Media Specialist',
-      // Technical and platform roles
-      'Learning Technologist',
-      'LMS Administrator',
-      'Learning Systems Manager',
-      // Strategy and leadership
-      'L&D Manager',
-      'Learning Program Manager',
-      'Director Learning Development',
-      'Workforce Development Manager',
-      // Facilitation and delivery
-      'Corporate Trainer',
-      'Technical Trainer',
-      'Enablement Specialist',
-      // Performance and capability
-      'Performance Consultant',
-      'Organizational Development Specialist',
-      'Talent Development Specialist',
-      // Emerging roles
-      'Learning Product Manager',
-      'AI Learning Designer',
+      'instructional+designer',
+      'learning+experience+designer',
+      'curriculum+designer',
+      'elearning+developer',
+      'learning+architect',
+      'lms+administrator',
+      'corporate+trainer',
+      'training+specialist',
     ];
 
-    // Build search queries combining job titles with locations
-    const searchQueries = ldJobTitles.flatMap(title => [
-      `"${title}" Orlando FL`,
-      `"${title}" remote`,
-    ]);
-
-    // Limit to avoid rate limiting - pick a subset of queries
-    const selectedQueries = searchQueries.slice(0, 20);
-    
-    // Collect job URLs from search first
-    const jobUrls: Set<string> = new Set();
-    
-    for (const query of selectedQueries) {
-      console.log(`Searching: ${query}`);
+    // Scrape Indeed search pages to get job links
+    for (const title of ldJobTitles.slice(0, 4)) { // Limit to avoid timeout
+      // Remote jobs
+      const remoteSearchUrl = `https://www.indeed.com/jobs?q=${title}&l=remote&sort=date`;
+      // Orlando jobs
+      const orlandoSearchUrl = `https://www.indeed.com/jobs?q=${title}&l=Orlando%2C+FL&sort=date`;
       
-      try {
-        const searchResponse = await fetch('https://api.firecrawl.dev/v1/search', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${firecrawlApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query: `${query} site:indeed.com OR site:linkedin.com/jobs`,
-            limit: 5,
-          }),
-        });
+      for (const searchUrl of [remoteSearchUrl, orlandoSearchUrl]) {
+        console.log(`Scraping search page: ${searchUrl}`);
+        
+        try {
+          const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${firecrawlApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              url: searchUrl,
+              formats: ['links', 'markdown'],
+            }),
+          });
 
-        const searchData = await searchResponse.json();
-        console.log(`Search results for "${query}":`, searchData.success ? searchData.data?.length || 0 : 'failed');
-
-        if (searchData.success && searchData.data) {
-          for (const result of searchData.data) {
-            const url = result.url || '';
-            // Only add actual job page URLs, not search result pages
-            if (isValidJobUrl(url)) {
-              jobUrls.add(url);
+          const scrapeData = await scrapeResponse.json();
+          
+          if (scrapeData.success && scrapeData.data) {
+            const links = scrapeData.data.links || [];
+            console.log(`Found ${links.length} links on search page`);
+            
+            // Extract job URLs from links
+            for (const link of links) {
+              if (typeof link === 'string' && isValidJobUrl(link)) {
+                // Clean up the URL - remove tracking parameters
+                let cleanUrl = link.split('&from=')[0];
+                cleanUrl = cleanUrl.split('&tk=')[0];
+                jobUrls.add(cleanUrl);
+              }
             }
           }
+        } catch (err) {
+          console.error(`Error scraping search page ${searchUrl}:`, err);
         }
-      } catch (err) {
-        console.error(`Error searching for "${query}":`, err);
       }
     }
 
     console.log(`Found ${jobUrls.size} unique job URLs to scrape`);
 
     // Now scrape each individual job page
-    const jobUrlArray = Array.from(jobUrls).slice(0, 50); // Limit to 50 jobs to avoid timeout
+    const jobUrlArray = Array.from(jobUrls).slice(0, 30); // Limit to avoid timeout
     
     for (const jobUrl of jobUrlArray) {
       try {
@@ -195,9 +178,9 @@ Deno.serve(async (req) => {
         
         if (scrapeData.success && scrapeData.data) {
           const { job, postedDateStr } = parseJobFromScrapedPage(scrapeData.data, jobUrl);
-          if (job && isWithinLast30Days(postedDateStr)) {
+          if (job && job.company && isWithinLast30Days(postedDateStr)) {
             jobs.push(job);
-            console.log(`Parsed job: ${job.title} at ${job.company}`);
+            console.log(`Parsed job: ${job.title} at ${job.company} - ${job.location}`);
           } else if (job && !isWithinLast30Days(postedDateStr)) {
             console.log(`Skipping job "${job.title}" - posted more than 30 days ago: ${postedDateStr}`);
           }
@@ -301,60 +284,86 @@ function parseJobFromScrapedPage(data: any, jobUrl: string): { job: ScrapedJob |
     // Extract company
     let company = 'Unknown Company';
     
-    // Try page title for company
+    // Try page title for company - Indeed format: "Job Title - Company Name | Indeed.com"
     if (pageTitle.includes(' - ')) {
       const parts = pageTitle.split(' - ');
       if (parts.length >= 2) {
-        company = parts[1].split(' | ')[0].trim();
-      }
-    } else if (pageTitle.includes(' | ')) {
-      const parts = pageTitle.split(' | ');
-      if (parts.length >= 2) {
-        company = parts[1].trim();
+        // Get the second part and clean it
+        let companyPart = parts[1].split(' | ')[0].trim();
+        // Skip if it's just location/metadata
+        if (companyPart && 
+            companyPart !== 'Remote' && 
+            !companyPart.match(/^[A-Z]{2}$/) &&
+            !companyPart.toLowerCase().includes('indeed') &&
+            !companyPart.toLowerCase().includes('linkedin') &&
+            !companyPart.toLowerCase().includes('logo')) {
+          company = companyPart;
+        }
       }
     }
     
-    // Look for company in markdown if not found
+    // Look for company in markdown using Indeed's typical format
     if (company === 'Unknown Company') {
-      const companyPatterns = [
-        /(?:company|employer)[:\s]+([^\n]+)/i,
-        /(?:at|@)\s+([A-Z][A-Za-z\s&]+?)(?:\s*[-–|]|\s*\n)/,
-      ];
-      for (const pattern of companyPatterns) {
-        const match = markdown.match(pattern);
-        if (match) {
-          company = match[1].trim();
-          break;
-        }
+      // Indeed shows company with rating: "Company Name\n4.2 out of 5"
+      const ratingMatch = markdown.match(/\n\n\[([A-Z][^\]]+)\]\([^)]+\)\n\n(?:\([^)]+\)\n\n)?(\d+\.\d+)/);
+      if (ratingMatch && ratingMatch[1]) {
+        company = ratingMatch[1].trim();
+      }
+    }
+    
+    // Alternative: look for bracketed company name link
+    if (company === 'Unknown Company') {
+      const bracketMatch = markdown.match(/\[([A-Z][A-Za-z0-9\s&.,'-]+?)\]\(https:\/\/www\.indeed\.com\/cmp/);
+      if (bracketMatch && bracketMatch[1]) {
+        company = bracketMatch[1].trim();
       }
     }
 
     // Clean up company name
-    company = company.replace(/\s*\|.*$/, '').replace(/Indeed\.com.*$/i, '').replace(/LinkedIn.*$/i, '').trim();
+    company = company
+      .replace(/\s*\|.*$/, '')
+      .replace(/Indeed.*$/i, '')
+      .replace(/LinkedIn.*$/i, '')
+      .replace(/\s*logo$/i, '')
+      .replace(/\s*\(.*$/, '')
+      .trim();
 
     // Determine if remote
     const isRemote = /\bremote\b/i.test(markdown) || /\bremote\b/i.test(pageTitle);
     const locationType = isRemote ? 'Remote' : 'On-site';
 
-    // Extract location - look for specific location patterns
+    // Extract location - be very precise to avoid picking up random text
     let location = isRemote ? 'Remote' : 'Unknown';
     
+    // Look for clean City, ST patterns
     const locationPatterns = [
-      // Indeed-style location section
-      /location[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})/i,
-      // LinkedIn-style location
-      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\s*(?:\(|·|•)/,
-      // General City, ST pattern (be more specific to avoid false matches)
-      /(?:^|\n|\s)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:CA|FL|TX|NY|WA|IL|PA|OH|GA|NC|MI|NJ|VA|AZ|MA|TN|IN|MO|MD|WI|MN|CO|AL|SC|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|WV|ID|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|VT|WY))(?:\s|$|\n)/,
+      // Indeed typically shows location on its own line after Remote
+      /\nRemote\n\n([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\n/,
+      // Location followed by salary
+      /\n([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\n\n\$/,
+      // Location after company rating section
+      /out of 5 stars\n\n([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})/,
+      // Simple City, ST on its own line
+      /\n([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\n/,
     ];
     
     for (const pattern of locationPatterns) {
       const match = markdown.match(pattern);
-      if (match) {
-        location = match[1].trim();
-        break;
+      if (match && match[1]) {
+        const potentialLocation = match[1].trim();
+        // Validate it's a real city (not something like "Jobs In Los Angeles")
+        if (!potentialLocation.toLowerCase().includes('jobs') && 
+            !potentialLocation.toLowerCase().includes('search') &&
+            !potentialLocation.toLowerCase().includes('logo') &&
+            potentialLocation.length < 40 &&
+            potentialLocation.split(',')[0].length > 2) { // City name > 2 chars
+          location = potentialLocation;
+          break;
+        }
       }
     }
+    
+    console.log(`Extracted location: ${location} for job: ${title}`);
 
     // Employment type
     let employmentType = 'Full-time';
