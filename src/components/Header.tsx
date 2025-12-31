@@ -1,11 +1,12 @@
 import { Link, useLocation } from "react-router-dom";
-import { Briefcase, Users, PlusCircle, LogIn, UserPlus, LogOut } from "lucide-react";
+import { Briefcase, Users, PlusCircle, LogIn, UserPlus, LogOut, FileText, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import NotificationBell from "./NotificationBell";
 
 const Header = () => {
   const location = useLocation();
-  const { user, isLoading, signOut } = useAuth();
+  const { user, isLoading, isAdmin, signOut } = useAuth();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -40,7 +41,10 @@ const Header = () => {
               </Button>
             </Link>
             <Link to="/post-job">
-              <Button variant="ghost" className="gap-2">
+              <Button
+                variant={isActive("/post-job") ? "secondary" : "ghost"}
+                className="gap-2"
+              >
                 <PlusCircle className="h-4 w-4" />
                 Post a Job
               </Button>
@@ -51,6 +55,19 @@ const Header = () => {
         <div className="flex items-center gap-2">
           {isLoading ? null : user ? (
             <>
+              {isAdmin && (
+                <Link to="/admin">
+                  <Button variant="ghost" size="icon" title="Admin Dashboard">
+                    <Shield className="h-5 w-5" />
+                  </Button>
+                </Link>
+              )}
+              <Link to="/my-submissions">
+                <Button variant="ghost" size="icon" title="My Submissions">
+                  <FileText className="h-5 w-5" />
+                </Button>
+              </Link>
+              <NotificationBell />
               <span className="text-sm text-muted-foreground hidden sm:inline">
                 {user.email}
               </span>

@@ -8,6 +8,10 @@ import Index from "./pages/Index";
 import Jobs from "./pages/Jobs";
 import Freelancers from "./pages/Freelancers";
 import Auth from "./pages/Auth";
+import PostJob from "./pages/PostJob";
+import PostFreelancer from "./pages/PostFreelancer";
+import MySubmissions from "./pages/MySubmissions";
+import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,6 +28,10 @@ const App = () => (
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/freelancers" element={<Freelancers />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/post-job" element={<PostJob />} />
+            <Route path="/post-freelancer" element={<PostFreelancer />} />
+            <Route path="/my-submissions" element={<MySubmissions />} />
+            <Route path="/admin" element={<AdminDashboard />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
