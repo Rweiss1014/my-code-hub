@@ -258,14 +258,36 @@ function parseJobFromResult(result: any): { job: ScrapedJob | null; postedDateSt
     
     const locationType = isRemote ? 'Remote' : 'On-site';
 
-    // Extract location
-    let location = 'Orlando, FL';
-    const locationMatch = markdown.match(/Orlando,?\s*FL/i) || 
-                         markdown.match(/Florida/i);
-    if (locationMatch) {
-      location = 'Orlando, FL';
-    } else if (isRemote) {
-      location = 'Remote';
+    // Extract location - look for actual city, state patterns in the content
+    let location = 'Remote';
+    
+    // Look for specific location patterns like "City, ST" or "City, State"
+    const locationPatterns = [
+      // Match "Location: City, ST" or "Location City, ST"
+      /(?:location|located|loc)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z]{2})/i,
+      // Match common location formats in job listings
+      /(?:in|at|based in)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z]{2})/i,
+      // Match standalone "City, ST" patterns (common in Indeed/LinkedIn)
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*(?:CA|FL|TX|NY|WA|IL|PA|OH|GA|NC|MI|NJ|VA|AZ|MA|TN|IN|MO|MD|WI|MN|CO|AL|SC|LA|KY|OR|OK|CT|UT|IA|NV|AR|MS|KS|NM|NE|WV|ID|HI|NH|ME|MT|RI|DE|SD|ND|AK|DC|VT|WY))\b/,
+      // Match "City, Full State Name"
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*(?:California|Florida|Texas|New York|Washington|Illinois|Pennsylvania|Ohio|Georgia|North Carolina|Michigan|New Jersey|Virginia|Arizona|Massachusetts|Tennessee|Indiana|Missouri|Maryland|Wisconsin|Minnesota|Colorado|Alabama|South Carolina|Louisiana|Kentucky|Oregon|Oklahoma|Connecticut|Utah|Iowa|Nevada|Arkansas|Mississippi|Kansas|New Mexico|Nebraska|West Virginia|Idaho|Hawaii|New Hampshire|Maine|Montana|Rhode Island|Delaware|South Dakota|North Dakota|Alaska|Vermont|Wyoming))\b/i,
+    ];
+    
+    for (const pattern of locationPatterns) {
+      const match = markdown.match(pattern) || description.match(pattern);
+      if (match) {
+        location = match[1].trim();
+        break;
+      }
+    }
+    
+    // If still no location found but it's remote, that's fine
+    if (location === 'Remote' && !isRemote) {
+      // Try to find any city mention as a fallback
+      const cityMatch = markdown.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b/);
+      if (cityMatch) {
+        location = `${cityMatch[1]}, ${cityMatch[2]}`;
+      }
     }
 
     // Determine employment type
@@ -310,8 +332,29 @@ function parseJobFromResult(result: any): { job: ScrapedJob | null; postedDateSt
       postedDateStr = postedMatch[1] || postedMatch[0];
     }
 
-    // Create external ID from URL
-    const externalId = url.replace(/[^a-zA-Z0-9]/g, '').substring(0, 100);
+    // Extract the actual job URL - look for direct job links in the content
+    let applyUrl = url;
+    
+    // For Indeed, look for the actual job view link
+    if (source === 'Indeed') {
+      const indeedJobMatch = markdown.match(/https?:\/\/(?:www\.)?indeed\.com\/viewjob\?[^\s\)\"<>]+/i) ||
+                             markdown.match(/https?:\/\/(?:www\.)?indeed\.com\/rc\/clk[^\s\)\"<>]+/i) ||
+                             markdown.match(/https?:\/\/(?:www\.)?indeed\.com\/applystart[^\s\)\"<>]+/i);
+      if (indeedJobMatch) {
+        applyUrl = indeedJobMatch[0];
+      }
+    }
+    
+    // For LinkedIn, look for the actual job posting link
+    if (source === 'LinkedIn') {
+      const linkedinJobMatch = markdown.match(/https?:\/\/(?:www\.)?linkedin\.com\/jobs\/view\/\d+[^\s\)\"<>]*/i);
+      if (linkedinJobMatch) {
+        applyUrl = linkedinJobMatch[0];
+      }
+    }
+    
+    // Create external ID from the apply URL for better deduplication
+    const externalId = applyUrl.replace(/[^a-zA-Z0-9]/g, '').substring(0, 100);
 
     return {
       job: {
@@ -322,7 +365,7 @@ function parseJobFromResult(result: any): { job: ScrapedJob | null; postedDateSt
         employmentType,
         salary,
         description: description || markdown.substring(0, 500),
-        applyUrl: url,
+        applyUrl,
         externalId,
         source,
       },
