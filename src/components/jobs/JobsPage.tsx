@@ -188,18 +188,18 @@ const JobsPage = () => {
             <div className="space-y-6">
               <h2 className="font-semibold text-lg">Filters</h2>
 
-              {/* Category Filter */}
+              {/* Job Title Category Filter */}
               <div>
-                <h3 className="font-medium mb-3">Category</h3>
+                <h3 className="font-medium mb-3">Job Title Category</h3>
                 <div className="space-y-2">
-                  {categories.map((category) => (
-                    <label key={category.id} className="flex items-center gap-2 cursor-pointer">
+                  {jobTitleCategories.map((cat) => (
+                    <label key={cat.name} className="flex items-center gap-2 cursor-pointer">
                       <Checkbox
-                        checked={selectedCategories.includes(category.name)}
-                        onCheckedChange={() => toggleFilter(category.name, selectedCategories, setSelectedCategories)}
+                        checked={selectedTitleCategory.includes(cat.name)}
+                        onCheckedChange={() => toggleFilter(cat.name, selectedTitleCategory, setSelectedTitleCategory)}
                       />
                       <span className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                        {category.name}
+                        {cat.name}
                       </span>
                     </label>
                   ))}
@@ -296,23 +296,6 @@ const JobsPage = () => {
                 </div>
               </div>
 
-              {/* Job Title Category Filter */}
-              <div>
-                <h3 className="font-medium mb-3">Job Title Category</h3>
-                <div className="space-y-2">
-                  {jobTitleCategories.map((cat) => (
-                    <label key={cat.name} className="flex items-center gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={selectedTitleCategory.includes(cat.name)}
-                        onCheckedChange={() => toggleFilter(cat.name, selectedTitleCategory, setSelectedTitleCategory)}
-                      />
-                      <span className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                        {cat.name}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
             </div>
           </aside>
 
