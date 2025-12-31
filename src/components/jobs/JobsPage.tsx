@@ -35,7 +35,7 @@ const jobTitleCategories = [
   { name: "Training Specialist", keywords: ["training specialist", "training coordinator", "trainer"] },
   { name: "Curriculum Developer", keywords: ["curriculum developer", "curriculum designer", "curriculum"] },
   { name: "E-Learning Developer", keywords: ["e-learning", "elearning", "articulate", "storyline"] },
-  { name: "L&D Manager", keywords: ["l&d manager", "learning manager", "training manager", "director of learning", "head of"] },
+  { name: "L&D Manager", keywords: ["l&d manager", "learning manager", "training manager", "director of learning", "head of learning", "learning director", "learning program manager", "learning leader", "l&d director", "learning and development manager", "learning & development"] },
 ];
 
 const JobsPage = () => {
