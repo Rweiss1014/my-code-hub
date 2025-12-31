@@ -5,7 +5,7 @@ export async function fetchJobs(): Promise<Job[]> {
   const { data, error } = await supabase
     .from('jobs')
     .select('*')
-    .neq('source', 'Adzuna')
+    .not('source', 'in', '(Adzuna,BeBee,SalesJobs,WhatJobs,Jobs For Stevenage Fans)')
     .order('created_at', { ascending: false });
 
   if (error) {
