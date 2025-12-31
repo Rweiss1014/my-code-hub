@@ -79,15 +79,50 @@ Deno.serve(async (req) => {
 
     const jobs: ScrapedJob[] = [];
 
-    // Search Indeed for L&D jobs
-    const indeedSearchQueries = [
-      'Learning Development Orlando FL',
-      'Training Development Orlando Florida',
-      'Instructional Designer Orlando FL remote',
-      'L&D Specialist Orlando remote',
+    // L&D job titles to search for
+    const ldJobTitles = [
+      // Core instructional roles
+      'Instructional Designer',
+      'Learning Experience Designer',
+      'Curriculum Designer',
+      'Learning Architect',
+      'Learning Consultant',
+      // Content and media focused
+      'eLearning Developer',
+      'Multimedia Designer Learning',
+      'Learning Media Specialist',
+      // Technical and platform roles
+      'Learning Technologist',
+      'LMS Administrator',
+      'Learning Systems Manager',
+      // Strategy and leadership
+      'L&D Manager',
+      'Learning Program Manager',
+      'Director Learning Development',
+      'Workforce Development Manager',
+      // Facilitation and delivery
+      'Corporate Trainer',
+      'Technical Trainer',
+      'Enablement Specialist',
+      // Performance and capability
+      'Performance Consultant',
+      'Organizational Development Specialist',
+      'Talent Development Specialist',
+      // Emerging roles
+      'Learning Product Manager',
+      'AI Learning Designer',
     ];
 
-    for (const query of indeedSearchQueries) {
+    // Build search queries combining job titles with locations
+    const searchQueries = ldJobTitles.flatMap(title => [
+      `"${title}" Orlando FL`,
+      `"${title}" remote`,
+    ]);
+
+    // Limit to avoid rate limiting - pick a subset of queries
+    const selectedQueries = searchQueries.slice(0, 20);
+    
+    for (const query of selectedQueries) {
       console.log(`Searching: ${query}`);
       
       try {
