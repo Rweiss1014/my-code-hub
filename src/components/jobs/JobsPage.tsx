@@ -44,6 +44,7 @@ const JobsPage = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isScraping, setIsScraping] = useState(false);
+  const [scrapeProgress, setScrapeProgress] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedExperience, setSelectedExperience] = useState<string[]>([]);
@@ -66,10 +67,14 @@ const JobsPage = () => {
 
   const handleScrape = async () => {
     setIsScraping(true);
-    toast({ title: "Scraping jobs...", description: "This may take a minute." });
+    setScrapeProgress("Starting...");
+    toast({ title: "Scraping jobs...", description: "Processing in batches to avoid timeout." });
     
-    const result = await scrapeJobs();
+    const result = await scrapeJobs((progress, totalInserted) => {
+      setScrapeProgress(`${progress} (${totalInserted} new jobs)`);
+    });
     
+    setScrapeProgress("");
     if (result.success) {
       toast({ title: "Success!", description: result.message });
       await loadJobs();
@@ -152,14 +157,19 @@ const JobsPage = () => {
               </p>
             </div>
             {isAdmin && (
-              <Button onClick={handleScrape} disabled={isScraping} className="gap-2">
-                {isScraping ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
+              <div className="flex flex-col items-end gap-1">
+                <Button onClick={handleScrape} disabled={isScraping} className="gap-2">
+                  {isScraping ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {isScraping ? "Scraping..." : "Scrape New Jobs"}
+                </Button>
+                {isScraping && scrapeProgress && (
+                  <span className="text-sm text-muted-foreground">{scrapeProgress}</span>
                 )}
-                {isScraping ? "Scraping..." : "Scrape New Jobs"}
-              </Button>
+              </div>
             )}
           </div>
         </div>
