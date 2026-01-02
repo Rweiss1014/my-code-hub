@@ -43,6 +43,9 @@ const DEFAULT_LOCATIONS = [
   "Tallahassee, FL",
 ];
 
+// Process in batches to avoid timeout (150s limit)
+const BATCH_SIZE = 20; // ~20 searches per batch = ~60 seconds
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -50,125 +53,149 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { searchTerms, locations } = body;
+    const { searchTerms, locations, batchIndex = 0 } = body;
     
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
     
     const termsToSearch = searchTerms || DEFAULT_SEARCH_TERMS;
     const locationsToSearch = locations || DEFAULT_LOCATIONS;
     
+    // Build all search combinations
+    const allCombinations: { term: string; location: string }[] = [];
+    for (const location of locationsToSearch) {
+      for (const term of termsToSearch) {
+        allCombinations.push({ term, location });
+      }
+    }
+    
+    const totalBatches = Math.ceil(allCombinations.length / BATCH_SIZE);
+    const startIdx = batchIndex * BATCH_SIZE;
+    const endIdx = Math.min(startIdx + BATCH_SIZE, allCombinations.length);
+    const batchCombinations = allCombinations.slice(startIdx, endIdx);
+    
+    if (batchCombinations.length === 0) {
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: "All batches completed",
+          batchIndex,
+          totalBatches,
+          hasMore: false
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     let totalInserted = 0;
     let totalSkipped = 0;
     let totalFound = 0;
-    let searchesCompleted = 0;
-    const totalSearches = termsToSearch.length * locationsToSearch.length;
 
-    console.log(`Starting scrape: ${termsToSearch.length} terms × ${locationsToSearch.length} locations = ${totalSearches} searches`);
+    console.log(`Batch ${batchIndex + 1}/${totalBatches}: Processing ${batchCombinations.length} searches (${startIdx + 1}-${endIdx} of ${allCombinations.length})`);
 
-    for (const searchLocation of locationsToSearch) {
-      for (const searchTerm of termsToSearch) {
-        const query = encodeURIComponent(`${searchTerm} in ${searchLocation}`);
-        console.log(`[${++searchesCompleted}/${totalSearches}] Searching: ${searchTerm} in ${searchLocation}`);
+    for (let i = 0; i < batchCombinations.length; i++) {
+      const { term: searchTerm, location: searchLocation } = batchCombinations[i];
+      const query = encodeURIComponent(`${searchTerm} in ${searchLocation}`);
+      console.log(`[${startIdx + i + 1}/${allCombinations.length}] Searching: ${searchTerm} in ${searchLocation}`);
+      
+      const response = await fetch(
+        `https://jsearch.p.rapidapi.com/search?query=${query}&num_pages=1`,
+        {
+          headers: {
+            "X-RapidAPI-Key": JSEARCH_API_KEY!,
+            "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`JSearch API error for "${searchTerm}" in "${searchLocation}":`, response.status, errorText);
+        continue;
+      }
+
+      const data = await response.json();
+      const jobCount = data.data?.length || 0;
+      console.log(`Found ${jobCount} jobs`);
+      totalFound += jobCount;
+
+      for (const job of data.data || []) {
+        const applyUrl = job.job_apply_link || job.job_google_link;
+        const externalId = job.job_id;
+        const publisher = job.job_publisher || "JSearch";
         
-        const response = await fetch(
-          `https://jsearch.p.rapidapi.com/search?query=${query}&num_pages=1`,
-          {
-            headers: {
-              "X-RapidAPI-Key": JSEARCH_API_KEY!,
-              "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
-            },
-          }
-        );
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`JSearch API error for "${searchTerm}" in "${searchLocation}":`, response.status, errorText);
+        if (!applyUrl || !externalId) {
+          totalSkipped++;
           continue;
         }
 
-        const data = await response.json();
-        const jobCount = data.data?.length || 0;
-        console.log(`Found ${jobCount} jobs`);
-        totalFound += jobCount;
+        // Skip Adzuna jobs
+        if (publisher.toLowerCase().includes('adzuna')) {
+          totalSkipped++;
+          continue;
+        }
 
-        for (const job of data.data || []) {
-          const applyUrl = job.job_apply_link || job.job_google_link;
-          const externalId = job.job_id;
-          const publisher = job.job_publisher || "JSearch";
-          
-          if (!applyUrl || !externalId) {
-            totalSkipped++;
-            continue;
-          }
+        // Check if job already exists
+        const { data: existing } = await supabase
+          .from("jobs")
+          .select("id")
+          .eq("external_id", externalId)
+          .maybeSingle();
 
-          // Skip Adzuna jobs
-          if (publisher.toLowerCase().includes('adzuna')) {
-            totalSkipped++;
-            continue;
-          }
+        if (existing) {
+          totalSkipped++;
+          continue;
+        }
 
-          // Check if job already exists
-          const { data: existing } = await supabase
-            .from("jobs")
-            .select("id")
-            .eq("external_id", externalId)
-            .maybeSingle();
+        // Build salary string
+        let salary: string | null = null;
+        if (job.job_min_salary && job.job_max_salary) {
+          salary = `$${job.job_min_salary.toLocaleString()} - $${job.job_max_salary.toLocaleString()}`;
+        } else if (job.job_salary_period && job.job_min_salary) {
+          salary = `$${job.job_min_salary.toLocaleString()} per ${job.job_salary_period}`;
+        }
 
-          if (existing) {
-            totalSkipped++;
-            continue;
-          }
-
-          // Build salary string
-          let salary: string | null = null;
-          if (job.job_min_salary && job.job_max_salary) {
-            salary = `$${job.job_min_salary.toLocaleString()} - $${job.job_max_salary.toLocaleString()}`;
-          } else if (job.job_salary_period && job.job_min_salary) {
-            salary = `$${job.job_min_salary.toLocaleString()} per ${job.job_salary_period}`;
-          }
-
-          // Build location string
-          let jobLocation = "Unknown";
-          if (job.job_city && job.job_state) {
-            jobLocation = `${job.job_city}, ${job.job_state}`;
-          } else if (job.job_city) {
-            jobLocation = job.job_city;
-          } else if (job.job_country) {
-            jobLocation = job.job_country;
-          }
-          
-          if (job.job_is_remote) {
-            jobLocation = jobLocation === "Unknown" ? "Remote" : `Remote in ${jobLocation}`;
-          }
-
-          const { error: insertError } = await supabase.from("jobs").insert({
-            title: job.job_title,
-            company: job.employer_name,
-            location: jobLocation,
-            apply_url: applyUrl,
-            salary: salary,
-            description: job.job_description?.substring(0, 2000),
-            source: job.job_publisher || "JSearch",
-            external_id: externalId,
-            category: "Learning & Development",
-            location_type: job.job_is_remote ? "Remote" : "On-site",
-            employment_type: job.job_employment_type || "Full-time",
-            posted_at: job.job_posted_at_datetime_utc || new Date().toISOString(),
-          });
-
-          if (insertError) {
-            console.error("Insert error:", insertError);
-          } else {
-            totalInserted++;
-          }
+        // Build location string
+        let jobLocation = "Unknown";
+        if (job.job_city && job.job_state) {
+          jobLocation = `${job.job_city}, ${job.job_state}`;
+        } else if (job.job_city) {
+          jobLocation = job.job_city;
+        } else if (job.job_country) {
+          jobLocation = job.job_country;
         }
         
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 300));
+        if (job.job_is_remote) {
+          jobLocation = jobLocation === "Unknown" ? "Remote" : `Remote in ${jobLocation}`;
+        }
+
+        const { error: insertError } = await supabase.from("jobs").insert({
+          title: job.job_title,
+          company: job.employer_name,
+          location: jobLocation,
+          apply_url: applyUrl,
+          salary: salary,
+          description: job.job_description?.substring(0, 2000),
+          source: job.job_publisher || "JSearch",
+          external_id: externalId,
+          category: "Learning & Development",
+          location_type: job.job_is_remote ? "Remote" : "On-site",
+          employment_type: job.job_employment_type || "Full-time",
+          posted_at: job.job_posted_at_datetime_utc || new Date().toISOString(),
+        });
+
+        if (insertError) {
+          console.error("Insert error:", insertError);
+        } else {
+          totalInserted++;
+        }
       }
+      
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
 
-    console.log(`Scrape complete: ${totalInserted} inserted, ${totalSkipped} skipped, ${totalFound} found across ${searchesCompleted} searches`);
+    const hasMore = endIdx < allCombinations.length;
+    console.log(`Batch ${batchIndex + 1} complete: ${totalInserted} inserted, ${totalSkipped} skipped, ${totalFound} found. HasMore: ${hasMore}`);
 
     return new Response(
       JSON.stringify({ 
@@ -176,9 +203,11 @@ Deno.serve(async (req) => {
         inserted: totalInserted, 
         skipped: totalSkipped,
         total_found: totalFound,
-        searches_completed: searchesCompleted,
-        terms_count: termsToSearch.length,
-        locations_count: locationsToSearch.length
+        batchIndex,
+        totalBatches,
+        hasMore,
+        nextBatchIndex: hasMore ? batchIndex + 1 : null,
+        progress: `${endIdx}/${allCombinations.length} searches completed`
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
